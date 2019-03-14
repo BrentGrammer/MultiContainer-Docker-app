@@ -1,0 +1,139 @@
+DOCKER COMPOSE FOR MULTI CONTAINER APP:
+
+-Use Dockercompose file to connect the different containers, provide access to env vars and make sure the services 
+are talking to each other.
+
+-Elements involved:
+  -need images for each service
+  -for the server, need to specify build options (which dockerfile to use), setup volumes for code updates, specify env variables
+
+1) In the root of the whole project (not inside client/server/worker dirs etc.), make a docker-compose.yml
+2) Specify a version at the top of the file, i.e. version: '3'
+3) Make a list of services for the application in a services block and name the services (you make up the name):
+   Syntax:
+  
+   services:
+     [servicename]:
+       image: [image_from_docker_hub_name:tag]
+  
+  Ex: for postgres service, you don't need build steps etc., just specify the image to use (find it on hub.docker.com->explore) 
+  Look for the official image for postgres and choose an image with the tag. 
+***(if there is a `latest` tag version of the image, then use that to get the latest stable version)
+
+   services: 
+     postgres: 
+       image: 'postgres:10'
+
+  You can test this with $ docker-compose up, and then see if you get a database system is ready to accept connections msg
+4) Server service setup:
+    Add build options (specify dockerfile to use), volumes and env vars for the server service block:
+   
+    -specify docker file - just specify the name of the file in the dockerfile: prop, nothing else (i.e. no path)
+    * specify which folder to look for the dockerfile using the context: prop
+
+    server:
+      build:
+        dockerfile: name_of_dockerfile
+        context: folder_tofind_dockerfile (i.e. ./server)
+
+    Add volumes: In a new block, use the volumes: prop under the build block to specify a list of args to setup a volume.
+    The files in the container you are concerned with are in the WORKDIR path set in the Dockerfile.dev in /server.
+     -start by specifying a bookmark for node_modules folder so it is not mapped or modified on code updates (i.e. - /app/node_modules)
+     - map the files inside the WORKDIR (i.e. /app) to the local files in the server folder:
+        i.e. - /.server:/app
+         (When accessing files in /app on the container machine will look in ./server for the files and use that)
+    
+     Full ex:
+      volumes: 
+        - /app/node_modules
+        - ./server:/app
+   
+    Set Env variables - these are set at run time (only when the container is started and not in the build phase, the 
+    container image does not know or create these values until the container is run)
+
+    Syntax: variableName=value  OR variableName (leaving off the =value means that the container will look for the variableName
+    and value on your machine - this might be used if you have a secret/api key on your machine you want to use)
+
+    You might get the variable name from a keys file in your project for example - it just needs to be the env var used.
+    *The value can just point to the name of the service in the docker-compose.yml file instead of a ip address, etc. 
+      Ex: REDIS_HOST=redis
+    
+    Note: You may need to check the image/repo docs for default values to use
+
+  SETTING UP NGINX SERVICE:
+  
+  Setup the Nginx service to route requests to different back end services (i.e. request for main.js and html goes to
+  the React dev server, and requests for api calls go to the Node server)
+  -You can specify that Nginx looks for certain route tokens and uses those to decide where to send the request:
+    i.e. /api/path/to/api could be sent to the Express server while / or /index.html is sent to the React dev server (
+      since there is no /api/ token on it)
+  -create and use a default.conf file which is a special config file for use with Nginx to set this routing up.
+    - Tell Nginx that there are upstream servers at different ports (i.e. 3000 or 5000) Upstream servers are just
+      other servers that Nginx can send traffic to.
+    Note: you tell Nginx which service to direct to by using the name from the dockerfile: i.e. client:3000, server:5000
+    - Tell Nginx to listen on port 80 (this is the port on the container which will be mapped to a port in the outside
+    world i.e. port 80 of the real server where the containers are being hosted)
+    - Set the rules that send requests to client or server upstream depending on the token in the route.
+
+  1) Create a new folder in the root project directory called /nginx/ and create a default.conf file
+  2) in the default.conf specify the upstream servers
+    upstream <name of upstream server> {
+      server <name of server from docker-compose>:<port>;
+    }
+
+    Note: to set an upstream to your express server with Nginx, you should rename your service from server to `api`
+    in your docker-compose file since server is a protected keyword in the default.conf for Nginx and could cause an error:
+    Ex:
+    upstream api {
+      server api:5000;
+    }
+    (in docker-compose):
+    api:
+      ...original server config steps
+  3) Tell Nginx to start a server and listen on port 80 and specify the routing rules:
+    server {
+      listen 80;
+      location / {
+        proxy_pass http://client;
+      }
+      location /api {
+        rewrite /api/(.*) /$1 break;
+        proxy_pass http://api;
+      }
+     }
+
+     Note: To get a websocket error solved because the React dev server expects an open web socket connection to
+     make updates and Nginx is blocking it, add a middle layer in the default.conf to proxy this connection through to
+     the container client service:
+
+        location /sockjs-node {
+          proxy_pass http://client;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "Upgrade";
+        }
+
+
+  4) Create a Dockerfile for the Nginx service container and copy the .conf file to the file system of the
+  container image (see docs on Dockerhub site for reference)
+  In Dockerfile.dev:
+    FROM nginx
+    COPY ./default.conf /etc/nginx/conf.d/default.conf
+  5) Add the Nginx service to the docker-compose file
+     -give the service a restart policy of always since you always want it running (this will make it always restart
+     back up on an error, for example)
+     -map a port on your local machine to 80 on the container (this is where nginx will be listening inside the container)
+      you can then access the service on your local machine through that port set
+       nginx:
+        restart: always
+        build:
+          dockerfile: Dockerfile.dev
+          context: ./nginx
+        ports:
+          - '3050:80'
+
+        (In this case you would access the application on localhost:3050 after the services are started)
+
+
+You can start the containers with $ docker-compose up --build 
+

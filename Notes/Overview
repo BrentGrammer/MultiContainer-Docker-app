@@ -1,0 +1,98 @@
+
+MULTI CONTAINER APP:
+
+-Create a container for each part of the app - the front end, back end and any middle layer or other services.
+For example (client, server, worker directories for the parts of the app)  
+
+PRODUCTION FLOW:
+
+*This flow eliminates the need for AWS to rebuild the production images multiple times for deployment.  
+The images are built one time by the Travis CI platform and the cloud platform (AWS) uses those built images for deployment.
+
+Push the Code for the project to Github
+Travis CI pulls the code from the Github Repo automatically
+Travis CI builds a test image to test the react code - image is only made for testing purposes and then thrown away
+Travis CI builds production images for each service (i.e. client, server, worker, nginx for ex.)
+Travis CI pushes the production images to Docker Hub (You can host your personal project images on Docker Hub)
+  - AWS, Google Cloud and alot of cloud services are wired to pull images from Docker Hub easily - you can use this feature
+    to pull your project images from Docker Hub when deploying to one of these platforms.
+Travis CI pushes project to AWS (lets AWS know that new images were pushed to Docker Hub and they should be used.)
+AWS (i.e. Elastic Beanstalk etc) downloads the built images and uses them for deployment
+
+STEPS:
+
+1) Make sure you have production versions of all Dockerfiles for the services of the app.
+  - create a Dockerfile in each of the service directories
+
+  Worker and Server service (in the worker and service folder in the project):
+  the Dockerfile needs to get the npm dependencies installed and run a start command for the container (you can probably
+  just use the Dockerfile.dev lines ver batim for this one - just change the run command from npm run dev to npm run start
+  -- CMD ["npm", "run", "start"])
+  **Make sure the run CMD in the prod Dockerfile lines up with what ou have in your package.json scripts to start the app
+  in prod environment (usually it's npm start)
+
+
+NGINX Containers in Production:
+  -In development you have an initial Nginx router exposing Port 80 that routes requests to the client or server back end
+  -In prod, you will usually have an initial nginx container which handles routing and also an nginx container that is 
+  responsible for serving client prod build assets (i.e. the bundled js files and html/css files etc.) exposing and listening
+  on port 3000 and being behind the initial nginx routing container.
+
+CLIENT SERVICE SETUP:
+In the Cient folder of the project make a new folder nginx and create a file in there: client/nginx/default.conf - you
+don't have to make the nginx folder nested in client, but it does make it clearer that it's an nginx config for the 
+client service.
+ Ex default.conf for prod nginx client router server:
+server {
+  # tell nginx to listen on port 3000 to serve client assets to requests sent here
+  listen 3000;
+
+  # set up a route rule to tell nginx to serve production assets (from the default nginx folder where they are stored)
+  # whenever requests hit the '/' route:
+  location / {
+    # the root directive tells nginx what the root directory to look for files to serve when the / is hit:
+    root /usr/share/nginx/html;
+    # set an index directive to tell nginx that the index to serve is index.html or index.htm
+    index index.html index.htm;
+    # this apparently makes nginx work correctly with React-router:
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+Set up the prod Dockerfile in the client service:
+
+   -multi step build phase - install dependencies and build prod assets
+   -build nginx container exposing 3000 and copy the build assets to the default nginx serving folder:
+   (client/Dockerfile):
+    FROM node:alpine as builder
+    WORKDIR '/app'
+    COPY ./package.json ./
+    RUN npm install
+    COPY . .
+    # build the assets which are placed in app/build
+    RUN npm run build
+
+    FROM nginx
+    EXPOSE 3000
+    # copy your default.conf file to the default nginx folder and overwrite the existing default.conf file that came with the image
+    COPY ./nginx/default.conf /etc/nginx/conf.d/default.conf
+    # copy the prod assets from the builder image above into the nginx image default folder for assets
+    COPY --from=builder /app/build /usr/share/nginx/html
+
+  NOTE ON TESTS: You'll want to make sure that any tests making api calls are going to mocks and not actually making 
+  requests to other services (i.e. the server) that may not be running when the tests are triggered by the CI.  Create
+  fixtures and mock calls that return that data.
+
+2) CREATE A GIT REPO TO PUSH CODE TO:
+  $ git init 
+  // in the parent top directory (ie the folder containing all the other service folders)
+
+  add and commit all the files
+  create a repo on Github
+  add the repo to remote in your project folder terminal:
+  $ git remote add origin git@github.com:BrentGrammer/Multicontainer-Docker-app.git
+
+
+
+
+

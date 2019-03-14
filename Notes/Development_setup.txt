@@ -1,0 +1,76 @@
+Development Setup:
+
+Dev Workflow - eliminate the need to build images when you make a change to code and save to get the updates by creating 
+dev dockerfiles and a volume to share the local code files with your container.
+
+-Create Dockerfile.dev files for each of the services to containerize in the app (i.e. client, server and worker)
+-In the dockerfiles you need to
+  -specify a base image 
+  -set the working directory
+  -copy package.json
+  -Run npm install
+  -Copy everything else over to the container
+  -Use a docker compose file to set up a volume to share files between local dir and the container
+  **This last step allows you to skip having to rebuild the image on code changes in development
+
+For each container run the commands:
+BUILD THE CONTAINER:
+$ docker build -f Dockerfile.dev .
+
+START THE CONTAINER:
+$ docker run <containerId>
+
+----
+
+SETTING UP DEV DOCKERFILES:
+
+-In each service or part of the app (i.e. client, server, worker for ex.) create a Dockerfile.dev file at the root level.
+
+Example Dockerfile.dev in the Client folder of the app:
+
+# specify base image:
+FROM node:alpine
+
+# set the Working Directory:
+WORKDIR '/app'
+
+# Copy the package.json to the container:
+COPY ./package.json ./
+
+# install dependencies:
+RUN npm install
+
+# copy project files for service over to the container:
+COPY . .
+
+# start the application:
+CMD ["npm", "run", "start"]
+
+BUILD THE CONTAINER:
+Now, make sure you are in the service folder (client for ex.) and in the terminal, build the container with:
+$ docker build -f Dockerfile.dev .
+
+START THE CONTAINER:
+$ docker run <containerId>
+
+
+-----
+
+
+SETTING UP DOCKERFILE.DEV FOR THE SERVER:
+
+-You can use nodemon to restart the server or node app whenever you make a change to the code.
+ Set your CMD in the dev Dockerfile to use a dev script in package.json which runs nodemon
+
+ Ex: 
+   ...same commands and lines as above Dockerfile.dev...
+   CMD ["npm", "run", "dev"]
+
+Finally, run $ docker build -f Dockerfile.dev .
+
+--
+====================
+
+
+
+
