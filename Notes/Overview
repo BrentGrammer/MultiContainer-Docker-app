@@ -11,7 +11,8 @@ The images are built one time by the Travis CI platform and the cloud platform (
 
 Push the Code for the project to Github
 Travis CI pulls the code from the Github Repo automatically
-Travis CI builds a test image to test the react code - image is only made for testing purposes and then thrown away
+Travis CI builds a test image to test the react code - image is only made for testing purposes and then thrown away (use
+   the development Dockerfile which has source code for running tests)
 Travis CI builds production images for each service (i.e. client, server, worker, nginx for ex.)
 Travis CI pushes the production images to Docker Hub (You can host your personal project images on Docker Hub)
   - AWS, Google Cloud and alot of cloud services are wired to pull images from Docker Hub easily - you can use this feature
@@ -91,6 +92,58 @@ Set up the prod Dockerfile in the client service:
   create a repo on Github
   add the repo to remote in your project folder terminal:
   $ git remote add origin git@github.com:BrentGrammer/Multicontainer-Docker-app.git
+
+3) SETUP TRAVIS CI:
+   Login to TRAVIS CI and Link Github repo:
+   - Go to your profile and Click Sync account to get the new repo to show up in the listen
+   - Click the switch  next to the repo to link it to Travis CI
+
+   Setup the Travis yaml file:
+    -specify Docker as a dependency
+    -build test version of the React project using the Dockerfile.dev development file to run tests (only the dev
+    Dockerfile has the dev dependencies installed to run tests)
+    -Run the tests
+    -Build prod version images of all services if tests pass
+    -Push all those images to Docker Hub (log in to docker hub via cli and then push images to your account)
+    -Tell AWS Elastic Beanstalk to update
+
+    In project root top folder, make a .travis.yml file
+
+    -Set up environment variables on your Travis CI project to store login credentials for use in the yml config file
+    when you need to login to docker hub before pushing the prod images to your account repo there:
+      go to Travis CI site and to your project page.  Click Settings->More Options-> go to environment variables section
+      Enter your Docker id and Docker password i.e. as DOCKER_ID and DOCKER_PASSWORD
+
+      Example .travis.yml file:
+        sudo: required
+        services:
+          - docker
+
+        before_install:
+          # run the dev dockerfile in the client folder to build image that can run tests and the build context is the nested client folder:
+          - docker build -t brentgrammer/react-test -f ./client/Dockerfile.dev ./client
+
+        script:
+          - docker run brentgrammer/react-test npm test -- --coverage
+        # build prod images for each service/project (name the images with -t anything you want but be consistent)
+
+        
+        # this will use the Dockerfile files so no need for the -f to use the dev file as above
+        after_success:
+          - docker build -t brentgrammer/multi-client ./client
+          - docker build -t brentgrammer/multi-nginx ./nginx
+          - docker build -t brentgrammer/multi-server ./server
+          - docker build -t brentgrammer/multi-worker ./worker
+          # log in to Docker Hub via CLI
+          # retrieve password from env variable set on Travis CI and pipe it as an input to the next command / standard in (stdin) channel
+          # the --password-stdin tells docker login to expect to receive that password over the stdin channel
+          - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_ID" --password-stdin
+          # push images to docker hub:
+          - docker push brentgrammer/multi-client
+          - docker push brentgrammer/multi-nginx
+          - docker push brentgrammer/multi-server
+          - docker push brentgrammer/multi-worker
+    
 
 
 
