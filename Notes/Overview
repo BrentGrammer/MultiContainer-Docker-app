@@ -127,7 +127,7 @@ Set up the prod Dockerfile in the client service:
           - docker run brentgrammer/react-test npm test -- --coverage
         # build prod images for each service/project (name the images with -t anything you want but be consistent)
 
-        
+
         # this will use the Dockerfile files so no need for the -f to use the dev file as above
         after_success:
           - docker build -t brentgrammer/multi-client ./client
@@ -143,6 +143,8 @@ Set up the prod Dockerfile in the client service:
           - docker push brentgrammer/multi-nginx
           - docker push brentgrammer/multi-server
           - docker push brentgrammer/multi-worker
+
+  4) commit changes to git and push to your GitHub Repo to trigger Travis CI to run
     
 
 
