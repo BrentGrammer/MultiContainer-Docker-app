@@ -74,28 +74,35 @@ Main Difference:
     **NOTE: the name provided in the links prop must match the name given to the other container inside the Dockerrun.aws.json 
     file. (i.e. use the "name" value, not the "hostname")
 
+    **Don't forget to specify memory property for each container (this is required and AWS needs to know how much RAM to
+    allocate to each container - specified in MB - megabytes) - you need to research how much memory you should allocate
+    depending on the service - check stack overflow for guidance
+
     Example Dockerrun.aws.json file:
 
-    {
+   {
   "AWSEBDockerrunVersion": 2,
   "containerDefinitions": [
     {
       "name": "client",
       "image": "brentgrammer/multi-client",
       "hostname": "client",
-      "essential": false
+      "essential": false,
+      "memory": 128
     },
     {
       "name": "server",
       "image": "brentgrammer/multi-server",
       "hostname": "api",
-      "essential": false
+      "essential": false,
+      "memory": 128
     },
     {
       "name": "worker",
       "image": "brentgrammer/multi-worker",
       "hostname": "worker",
-      "essential": false
+      "essential": false,
+      "memory": 128
     },
     {
       "name": "nginx",
@@ -108,7 +115,8 @@ Main Difference:
           "containerPort": 80
         }
       ],
-      "links": ["client", "server"]
+      "links": ["client", "server"],
+      "memory": 128
     }
   ]
 }
