@@ -33,7 +33,9 @@ after_success:
     app: multi-docker # this should match the heading title on your EB dashboard page that comes after 'All Applications'-> in the header
     env: MultiDocker-env # in the same header after the app name on the EB dashboard page in AWS console
     bucket_name: elasticbeanstalk-us-east-1-253160347010 # Where Travis CI zips up and stores the project on S3 - go to s3 service and look for the elastic-beanstalk bucket in your region (copy n paste the name after clicking on it)
-    bucket_path: docker-multi # make this up???
+    bucket_path: docker-multi #  look in the s3 bucket and look for the name of your project (AWS stores all apps created with elastic beanstalk in that s3 bucket under a namespace of the name of the app.)
+    # Note: the path or folder will not be there before the first deploy, so the default path you use is identical to the app name
+    # which is already in app: property in the .travis.yml file.
     on:
       branch: master # only build and deploy on pushes to master branch, not feature branches
     access_key_id: $AWS_ACCESS_KEY
