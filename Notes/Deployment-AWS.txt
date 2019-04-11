@@ -1,0 +1,317 @@
+Depploying multi container app to AWS Elastic Beanstalk:
+
+-You need to add a configuration step to tell Elastic Beanstalk how to treat the project since there is more than one
+Dockerfile.   (add a Dockerrun.aws.json config file to project)
+
+-Create a Dockerrun.aws.json file in theproject root directory which will tell AWS where to pull the images from, what resources
+to allocate to each, setup port mappings and associated info.
+
+*The Dockerrun.aws.json file is similar to a docker-compose.yml file in that it scripts various commands and lines that 
+would be normally passed to the Docker run command.
+While the docker-compose file tells how to build images for each service, the Dockerrun.aws.json file lists container
+definitions which tell AWS to download your built images from Dockerhub for the project and use those for the services.
+Main Difference:
+ -docker-compose.yml has instructions on how to build the imgages
+ -Dockerrun.aws.json has instructions on where to get the images and which ones (they're already built) to use with AWS
+
+ Note on container apps on AWS Elastic Beanstalk:
+ -Elastic Beanstalk does not know how to deal with containers - it forwards that operation to another service on AWS
+ called ECS (Elastic Container Service)
+ -To use ECS you define task definition files which tell ECS how to run a single container
+ You basically write task definitions inside the Dockerrun.aws.json file.
+
+ DOCS: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definitions.html
+ -Go to task definitions->container defintions links (on the right) 
+(see below for direct link)
+
+ *** See these Docs for a better understanding of what is written in the Dockerrun.aws.json file: ***
+ https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#container_definitions
+
+ CREATING THE DOCKERRUN.AWS.JSON FILE:
+
+ 1) In prject root create a Dockerrun.aws.json file
+
+ -Specify AWSEBDockerrunVersion which tells AWS which syntax you are using (this is version 2 for multi container app
+ configuration in the file)
+ -List container definitions in "containerDefinitions" prop as an array - for every entry in the array you will have one
+ distinct container created for the application (i.e. if you have 4 containers/images for your app, then you will have
+ 4 different entries in that array)
+
+ Add an entry for each container as an object:
+   -specify the name (does not have to match anything - just used in dashboard so you can identify it)
+   -specify the image to use for that container (use the name of the image you uploaded to your Dockerhub repo)
+     i.e. brentgrammer/image-name - AWS will know this is a docker hub image and look at your username in the name
+     and check your repo for it.
+     (this is common for many hosting services, not just AWS)
+   -specify a hostname: this is the name of the service (should match name in your docker-compose file) for the container and makes it
+   accessible to any other container in the network by making requests to that host name (i.e. http://client)
+   (any name you put in there will route requests made to that host to go to that container)
+   Note: the hostname prop is optional - if no other service needs to reach out to a container to access it, then you don't
+   need to specify the hostname.
+   -specify essential flag: this is set to a boolean (set it to false, no quotes) and determines the what AWS will do with
+   the other containers if this one crashes.  If essential is set to true and the container crashes, then AWS will shut
+   down all the other containers in the array group.
+   ** At least one container definition must be marked as essential: true in your container group (this is usually the server
+   or routing server - i.e. nginx etc.)
+
+   -specify port mappings (i.e. for nginx) on the container if required (this would only need to be done for the nginx
+   server container that receives and routes requests for instance)
+   Ex:
+    "portMappings": [
+        {
+          // open a port 80 on the machine hosting our project on the server (on AWS) and map it to port 80 on the nginx
+          // container - this is the default port number nginx listens on
+          "hostPort": 80,
+          "containerPort": 80
+        }
+      ]
+    }
+
+    -specify links: in docker-compose all services/containers have access via the hostname given, but in this Dockerrun
+    file, you need to specify links as an array of strings of the service hostnames you want access to (i.e. the nginx
+    server would need access to the client and server services) - "links": ["client
+    , "server"] 
+    **NOTE: the name provided in the links prop must match the name given to the other container inside the Dockerrun.aws.json 
+    file. (i.e. use the "name" value, not the "hostname")
+
+    Example Dockerrun.aws.json file:
+
+    {
+  "AWSEBDockerrunVersion": 2,
+  "containerDefinitions": [
+    {
+      "name": "client",
+      "image": "brentgrammer/multi-client",
+      "hostname": "client",
+      "essential": false
+    },
+    {
+      "name": "server",
+      "image": "brentgrammer/multi-server",
+      "hostname": "api",
+      "essential": false
+    },
+    {
+      "name": "worker",
+      "image": "brentgrammer/multi-worker",
+      "hostname": "worker",
+      "essential": false
+    },
+    {
+      "name": "nginx",
+      "image": "brentgrammer/multi-nginx",
+      "hostname": "nginx",
+      "essential": true,
+      "portMappings": [
+        {
+          "hostPort": 80,
+          "containerPort": 80
+        }
+      ],
+      "links": ["client", "server"]
+    }
+  ]
+}
+
+------
+
+CREATE AN ENVIRONMENT ON AWS BEANSTALK 
+
+-Create a new application in the EB dashboard (look up the service in AWS console)
+-Under the second section, for platform, choose multi-container Docker
+-click create environment at the bottom
+
+DATABASE MANAGEMENT:
+
+-You don't use own containers for housing Postrgres and Redis, you should use cloud services for that.
+
+-For postgres, on AWS you can use AWS Relational Database Service (RDS)
+-For Redis, you can use AWS Elastic Cache service.
+
+These services can be used with any application and are general data services.
+
+Reasons to use these services over containers:
+
+ElastiCache:
+ -automatic creation and maintaining of Redis instances (default settings are production ready)
+ -very easy to scale (no need to reallocate resources to container etc on heavy load)
+ -builtin logging and maintenance (automatic patching and updates to Redis)
+ -better security than we're capable of - they manage it
+ -**Easy to migrate off of EB in the future 
+
+AWS RDS:
+ -***Automatic Backups and Rollbacks of databases
+ -Same reasons as above for Elastic Cache
+
+Both of these services cost money but are relatively affordable ($10-20/month per service)
+
+--
+
+Architecture and CONNECTING SERVICES:
+
+-Elastic Beanstalk instance connects to an instance of AWS Elastic Cache and AWS RDS instances.
+-By default services like these do not talk or connect to each other.  A connection between the services must be set up.
+-A Security Group will be created that only allows source traffic from other services that have that security group 
+applied to them.
+
+You have one VPC (Virtual Private Cloud) per region on AWS which isolates your instances and services in a private network.
+You can see your default VPC in the region you are using by looking up VPC in services on AWS console.  It will list 
+the id etc. 
+
+*To connect the services on AWS you need to create a security group (firewall rules)
+-See Security Groups by going to VPC service->Security Groups in the sidebar
+-A default security group is created for your EB app which opens port 80 on your VPC
+-You need to create a security group for each service which governs what traffic is allowed on ports with Inbound and 
+Outbound rules.
+Create a security group that allows access to the VPC instance from any AWS service if it belongs to that security group.
+
+CREATE THE RDS INSTANCE:
+
+-Look up RDS in services in AWS console and click create database.
+-Select the database you want
+-Select the checkbox at the bottom to enable only free tier usage if desired, then click next
+-You can leave default settings initially; input a identifier (string for you to label the service)
+and values for Master User and Master Password -- enter the values that you will eventually pass to 
+the environment variables in the docker-compose.yml file for the project (i.e.PGUSER and PGPASSWORD)
+-Click next and then make sure that Public Accessibility is set to NO (only services in the service group will
+be allowed to access it)
+ Enter a database name that will need to be used in the docker-compose.yml file as the value for the env variable 
+ (i.e. PGDATABASE)
+-Click Create Database
+
+CREATE THE ELASTICACHE REDIS INSTANCE:
+
+-Look up Elasticache in services search on the AWS console.
+-Click on Redis in the left side nav and the create button on the page that gets pulled up
+-You don't need a cluster for smaller projects, so leave that option unselected
+-Enter a name (anything you want to identify it, i.e. app-name-redis)
+-Change the Node Type to a T2 Micro to avoid high charges.
+-If you don't have any high demands on your app, change the replicas to none
+-In the subnet section (this is for security), put in a name (i.e. redis-group)
+-Make sure the VPC ID is the default for your region or the same Id as the other services you want redis to communicate
+with to make the redis service in the same network as everything else so they can talk to each other. (if you have a 
+fresh AWS account it's probably the only option)
+-Select/check some subnets to use for the service.
+-Skip Security setup (you can setup a security group separately) and click CREATE
+NOTE: You might have to refresh the page if it hangs saying "creating" for too long
+
+CREATE A SECURITY GROUP:
+
+-Go to the VPC dashboard: search for VPC in services search bar in AWS console.
+-On the left side bar menu scroll to Security section and click Security Groups
+-Click on Create Security Group at the top
+-Input a name (i.e. app-name)
+-Enter a description( i.e. "Traffic for services in my-app")
+-Select the VPC you want the security group to apply to (the one your app services are on - if you haven't created them
+then select the default for the region - probably the only option)
+-Click Create
+  (Set up the rules):
+-Select the security group you created in the dashboard and go to the Inbound Rules tab
+-Click Edit->Add a New Rules
+-Leave the type as Custom TCP 
+-You can restrict the ports in the range of the default Redis and Postgres port numbers: 5432-6379
+-Set the source (from where you will allow incoming traffic) to the security group you just created for your app. 
+(You can find the group ID in the VPC->Security Groups dashboard - copy and paste it)
+-Click save
+
+APPLY THE SECURITY GROUP TO EACH SERVICE INSTANCE IN YOUR APP:
+
+For ELASTICACHE:
+-Go to the service you're using in your app in AWS console (i.e. Services->Elasticache->Redis)
+-Click and check the box next to the service on the page that is pulled up (i.e. check my-app-redis)
+-Click Modify at the top of the page
+-Click on the pencil next to VPC Security Groups in the Popup window
+-Select the security group you created above (leave any others checked by default alone) and click save
+(Ignore the maintenance window field - this does not apply to security groups and they will be immediately
+updated)
+-Click Modify to save the changes
+
+For RDS:
+-Go to RDS in the services lookup and select Databases in the left side menu
+-Select the database you want to add the security group to
+-Click the Modify button at the top right of the page
+-Scroll down to the Network & Security section, select the drop down and your security group for the app created
+-Scroll down and click Continue (ignore the Maintence scheduling afterwards - Security group changes take 
+effect immediately - you can select either option to apply immediately or not - the database will not be 
+restarted or stopped for this process)
+-Click Modify DB instance
+(You can verify security groups after by clicking on Databases in the left side menu and checking the security groups
+section)
+
+For ELASTIC BEANSTALK:
+-Find Elastic Beanstalk in the services lookup
+-Select the created environment for your app
+-Select Configuration on the left side menu in the environment page
+-Find the card that says Instances at the top and click Modify at the bottom of that card
+-Add a check to the security group for your app and click Apply
+
+--
+
+PROVIDE ENVIRONMENT VARIABLES ON AWS FOR THE SERVICES TO USE:
+
+-The environment variables you set in the docker-compose.yml file for the project need to be set up on AWS so that
+the code that will run in the AWS service instances will be able to find them.
+
+Example with EB:
+
+Note: The course offers a sub par solution by storing the secrets on a page that may be accessible to others.
+You should use AWS Secrets Manager to store sensitive environment variables in an encrypted and secure way.
+(The service is charged for)
+
+-Find Elastic Beanstalk service in AWS console
+-Select the Environment created for your app and then Configuration in the left side menu
+-at the bottom of the Software card, click Modify
+-Enter each Environment variable copying and pasting from the docker-compose.yml file for that service
+Note: The value for a host, for example REDIS_HOST, will be the URL of it (the Primary Endpoint or Endpoint field on AWS)
+To find this, go to the services page for that service instance and expand information on it to find a Primary
+Endpoint value - you want to copy this, but don't copy the :<PortNumber> part, only everything to the left
+of the colon!  Paste that value into the value of the env variable (i.e. REDIS_HOST multi-docker-redis.lsm333.0033.use1.cache.amazonaws.com)
+-Click Apply when done
+
+Note: EB makes these environment variables available to your services specified in the Dockerrun.aws.json file you created for 
+the project, so you don't have to do any mapping in the docker-compose.yml file.
+
+------------
+
+SETUP AWS ACCESS KEYS WITH IAM ROLE FOR THE PROJECT:
+
+-These keys need to be set as environment variables for use in the 
+
+1) Create an IAM user with deploy access to Elastic Beanstalk:
+
+  -Go to AWS console->Services->IAM, click on Users in the left side nav
+  -Click on Add User and set a name (i.e. multi-docker-deployer)
+  -Check programmatic access under Access Type, and click next: Permissions
+  -Select Attach Existing Policies Directly Option Tab and search for 'Beanstalk' to pull up a list of EB Policies
+  -Check off all the Beanstalk policies (you can be more fine grained in future projects)
+  -Click next to add tags and finally Create User
+
+2) Set AWS Access keys for the new IAM user as encrypted environment variables through the Travis CI dashboard:
+  - Go to travis-ci.org, sign in and go to your project in the dashboard->More Options->Settings and scroll to the 
+    Environment Variables section
+  - Create AWS_ACCESS_KEY and AWS_SECRET_KEY and copy over the keys from the page you get in AWS console after creating 
+    the IAM user and click Add for both of them
+
+3) Add the Deploy script to the .travis.yml file:
+  -add this at the bottom of the file as the last block:
+
+  ...other stuff in .travis.yml...
+
+  deploy:
+    provider: elasticbeanstalk
+    region: us-east-1 # get this from the url in your elastic beanstalk page on AWS console
+    app: multi-docker # this should match the heading title on your EB dashboard page that comes after 'All Applications'-> in the header
+    env: MultiDocker-env # in the same header after the app name on the EB dashboard page in AWS console
+    bucket_name: elasticbeanstalk-us-east-1-253160347010 # Where Travis CI zips up and stores the project on S3 - go to s3 service and look for the elastic-beanstalk bucket in your region (copy n paste the name after clicking on it)
+    bucket_path: docker-multi # make this up???
+    on:
+      branch: master # only build and deploy on pushes to master branch, not feature branches
+    access_key_id: $AWS_ACCESS_KEY
+    secret_access_key:
+      secure: $AWS_SECRET_KEY
+   
+
+
+
+
+

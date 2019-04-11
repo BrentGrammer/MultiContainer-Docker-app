@@ -15,6 +15,7 @@ services:
     build:
       dockerfile: Dockerfile.dev
       context: ./server
+    # set to allow for mapping to container files to update code when changes made - the node_modules is not mapped and is a bookmark telling Docker not to do anything with it.
     volumes: 
       - /app/node_modules
       - ./server:/app

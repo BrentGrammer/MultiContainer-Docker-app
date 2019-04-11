@@ -145,6 +145,14 @@ Set up the prod Dockerfile in the client service:
           - docker push brentgrammer/multi-worker
 
   4) commit changes to git and push to your GitHub Repo to trigger Travis CI to run
+
+  ================
+
+  TROUBLESHOOTING:
+
+  -Jest has a problem with the latest version of node  which will cause the test suite to fail.
+  You need to use an older version of node in your Dockerfile.dev in the client service:
+  FROM node:11.10.1
     
 
 

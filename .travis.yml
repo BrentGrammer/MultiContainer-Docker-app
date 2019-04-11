@@ -3,7 +3,8 @@ services:
   - docker
 
 before_install:
-  # run the dev dockerfile in the client folder to build image that can run tests and the build context is the nested client folder:
+  # run the dev dockerfile in the client folder to build image that can run tests and the build context is the nested 
+  # client folder:
   - docker build -t brentgrammer/react-test -f ./client/Dockerfile.dev ./client
 
 script:
@@ -16,7 +17,8 @@ after_success:
   - docker build -t brentgrammer/multi-server ./server
   - docker build -t brentgrammer/multi-worker ./worker
   # log in to Docker Hub via CLI
-  # retrieve password from env variable set on Travis CI and pipe it as an input to the next command / standard in (stdin) channel
+  # retrieve password from env variable set on Travis CI and pipe it as an input to the next command / standard in (stdin) 
+  # channel
   # the --password-stdin tells docker login to expect to receive that password over the stdin channel
   - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_ID" --password-stdin
   # push images to docker hub:
@@ -24,3 +26,16 @@ after_success:
   - docker push brentgrammer/multi-nginx
   - docker push brentgrammer/multi-server
   - docker push brentgrammer/multi-worker
+
+  deploy:
+    provider: elasticbeanstalk
+    region: us-east-1 # get this from the url in your elastic beanstalk page on AWS console
+    app: multi-docker # this should match the heading title on your EB dashboard page that comes after 'All Applications'-> in the header
+    env: MultiDocker-env # in the same header after the app name on the EB dashboard page in AWS console
+    bucket_name: elasticbeanstalk-us-east-1-253160347010 # Where Travis CI zips up and stores the project on S3 - go to s3 service and look for the elastic-beanstalk bucket in your region (copy n paste the name after clicking on it)
+    bucket_path: docker-multi # make this up???
+    on:
+      branch: master # only build and deploy on pushes to master branch, not feature branches
+    access_key_id: $AWS_ACCESS_KEY
+    secret_access_key:
+      secure: $AWS_SECRET_KEY
